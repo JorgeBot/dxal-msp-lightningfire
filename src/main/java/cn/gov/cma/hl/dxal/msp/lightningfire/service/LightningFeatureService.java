@@ -53,7 +53,7 @@ public class LightningFeatureService {
         List<String> regions = new ArrayList<>();
         List<Integer> counts = new ArrayList<>();
         for (RegionCountDTO row : rows) {
-            regions.add(resolveRegionLabel(row.region()));
+            regions.add(row.region());
             counts.add(row.count());
         }
         return new RegionDimChartDTO(regions, counts);
@@ -68,7 +68,7 @@ public class LightningFeatureService {
             q.le(DailyRegionStatistics::getStatDate, until);
         }
         if (region != null && region != SelectOption.RegionOption.all) {
-            q.eq(DailyRegionStatistics::getRegion, region.name());
+            q.eq(DailyRegionStatistics::getRegion, region.getLabel());
         }
         return q;
     }
@@ -79,14 +79,5 @@ public class LightningFeatureService {
             case YEAR -> "YYYY";
             default -> "YYYY-MM-DD";
         };
-    }
-
-    private String resolveRegionLabel(String code) {
-        for (SelectOption.RegionOption option : SelectOption.RegionOption.values()) {
-            if (option.name().equals(code)) {
-                return option.getLabel();
-            }
-        }
-        return code;
     }
 }

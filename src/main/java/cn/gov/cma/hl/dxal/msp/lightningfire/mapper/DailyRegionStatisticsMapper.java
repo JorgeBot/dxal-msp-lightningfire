@@ -29,11 +29,11 @@ public interface DailyRegionStatisticsMapper extends BaseMapper<DailyRegionStati
 
     @Select("""
             SELECT
-                TO_CHAR(stat_date, #{periodFormat}) AS period,
+                TO_CHAR(stat_date, '${periodFormat}') AS period,
                 COALESCE(SUM(record_count), 0) AS count
             FROM daily_region_statistics
             ${ew.customSqlSegment}
-            GROUP BY TO_CHAR(stat_date, #{periodFormat})
+            GROUP BY TO_CHAR(stat_date, '${periodFormat}')
             ORDER BY MIN(stat_date)
             """)
     List<TimeSeriesDTO> selectTimeSeriesByCondition(@Param(Constants.WRAPPER) Wrapper<DailyRegionStatistics> wrapper,
