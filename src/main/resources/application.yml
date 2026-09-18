@@ -1,0 +1,19 @@
+spring:
+  application:
+    name: dxal-msp-lightningfire
+  datasource:
+    url: jdbc:postgresql://8.141.3.227:31250/gis?currentSchema=public&stringtype=unspecified
+    username: gis
+    password: 'pPflq8TWGa9txIG8'
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 1
+      idle-timeout: 60000
+      connection-timeout: 30000
+      max-lifetime: 1800000
+      connection-test-query: SELECT 1
+
+server:
+  port: 18880
+  servlet:
+    context-path: /
