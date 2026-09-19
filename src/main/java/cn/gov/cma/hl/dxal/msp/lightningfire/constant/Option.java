@@ -2,11 +2,19 @@ package cn.gov.cma.hl.dxal.msp.lightningfire.constant;
 
 import lombok.Getter;
 
-public class SelectOption {
+/**
+ * 接口枚举参数，label 为中文展示名称，枚举名为接口取值。
+ *
+ * <p>取值到名称的映射同时用于 springdoc 参数说明（见 LightningEnvironmentController），
+ * 前端下拉框可直接读取 /ltg-env/region/options、/ltg-env/key-element/checkboxes。</p>
+ */
+public class Option {
 
+    /**
+     * 雷击火关键要素（checkbox）
+     */
     @Getter
     public enum KeyElementOption {
-        lightningFeature("地闪特征"),
         precipitation("降水"),
         temperature("气温"),
         windSpeed("风速"),
@@ -14,7 +22,6 @@ public class SelectOption {
         soilMoisture("土壤水"),
         fuelMoisture("可燃物含水率"),
         wetnessIndex("湿润指数"),
-        lightningFire("雷击火"),
         comprehensiveRisk("综合风险"),
         ;
 
@@ -25,6 +32,9 @@ public class SelectOption {
         }
     }
 
+    /**
+     * 分析区域，all 表示大兴安岭地区（全区域）
+     */
     @Getter
     public enum RegionOption {
         all("大兴安岭地区"),
@@ -43,6 +53,9 @@ public class SelectOption {
         }
     }
 
+    /**
+     * 时间轴粒度
+     */
     @Getter
     public enum GranularityOption {
         DAY("天"),

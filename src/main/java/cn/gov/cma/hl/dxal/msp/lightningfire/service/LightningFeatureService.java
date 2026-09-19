@@ -1,19 +1,22 @@
 package cn.gov.cma.hl.dxal.msp.lightningfire.service;
 
-import cn.gov.cma.hl.dxal.msp.lightningfire.constant.SelectOption;
+import cn.gov.cma.hl.dxal.msp.lightningfire.constant.Option;
 import cn.gov.cma.hl.dxal.msp.lightningfire.dto.lightningfeature.CorrelationCoefficientDTO;
-import cn.gov.cma.hl.dxal.msp.lightningfire.dto.lightningfeature.GridDTO;
 import cn.gov.cma.hl.dxal.msp.lightningfire.dto.lightningfeature.LeadingFactorDTO;
-import cn.gov.cma.hl.dxal.msp.lightningfire.dto.lightningfeature.TimeDimChartDTO;
-import cn.gov.cma.hl.dxal.msp.lightningfire.dto.lightningfeature.TimeSeriesDTO;
+import cn.gov.cma.hl.dxal.msp.lightningfire.dto.lightningfeature.LightningCharacteristicsDTO;
+import cn.gov.cma.hl.dxal.msp.lightningfire.dto.lightningfeature.LightningFireDTO;
 import cn.gov.cma.hl.dxal.msp.lightningfire.entity.CorrelationCoefficientStatistics;
+import cn.gov.cma.hl.dxal.msp.lightningfire.entity.ForestFireStatistics;
 import cn.gov.cma.hl.dxal.msp.lightningfire.entity.LeadingFactorStatistics;
 import cn.gov.cma.hl.dxal.msp.lightningfire.entity.LightningRegionStatistics;
 import cn.gov.cma.hl.dxal.msp.lightningfire.mapper.CorrelationCoefficientStatisticsMapper;
+import cn.gov.cma.hl.dxal.msp.lightningfire.mapper.ForestFireStatisticsMapper;
 import cn.gov.cma.hl.dxal.msp.lightningfire.mapper.LeadingFactorStatisticsMapper;
 import cn.gov.cma.hl.dxal.msp.lightningfire.mapper.LightningRegionStatisticsMapper;
 import cn.gov.cma.hl.dxal.msp.lightningfire.vo.CorrelationCoefficientVO;
 import cn.gov.cma.hl.dxal.msp.lightningfire.vo.LeadingFactorVO;
+import cn.gov.cma.hl.dxal.msp.lightningfire.vo.LightningElementsVO;
+import cn.gov.cma.hl.dxal.msp.lightningfire.vo.LightningFireTimeAxisVO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
@@ -23,10 +26,9 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -38,38 +40,55 @@ public class LightningFeatureService {
     private static final String[] FACTOR_LABELS =
             {"相对湿度", "温度", "降水", "地面高程", "可燃物含水率", "坡度", "风速"};
 
+    /**
+     * 地闪特征兜底值：聚合查询恒返回一行，仅在查询结果意外为空时使用。
+     */
+    private static final LightningCharacteristicsDTO EMPTY_CHARACTERISTICS =
+            new LightningCharacteristicsDTO(0, 0F, 0F, 0F);
+
     private final LightningRegionStatisticsMapper lightningRegionStatisticsMapper;
 
     private final CorrelationCoefficientStatisticsMapper correlationCoefficientStatisticsMapper;
 
     private final LeadingFactorStatisticsMapper leadingFactorStatisticsMapper;
 
-    public GridDTO lightningFeatureGrid(LocalDate since, LocalDate until, SelectOption.RegionOption region) {
-        return lightningRegionStatisticsMapper.selectLightningSummaryByCondition(buildQuery(since, until, region));
+    private final ForestFireStatisticsMapper forestFireStatisticsMapper;
+
+    /**
+     * 地闪特征：区间内（可按区域过滤）的地闪次数、正闪比例、地闪密度与地闪强度。
+     *
+     * <p>比例 / 密度 / 强度按各地区地闪记录数加权平均，已由 SQL 完成聚合与四舍五入；
+     * 无数据时各项均记 0，不返回 null。</p>
+     */
+    public LightningCharacteristicsDTO lightningCharacteristics(LocalDate since, LocalDate until, Option.RegionOption region) {
+        LightningCharacteristicsDTO characteristics = lightningRegionStatisticsMapper
+                .selectLightningSummaryByCondition(buildRegionQuery(since, until, region));
+        return characteristics == null ? EMPTY_CHARACTERISTICS : characteristics;
     }
 
-    public TimeDimChartDTO timeDimensionChart(LocalDate since, LocalDate until, SelectOption.RegionOption region, SelectOption.GranularityOption granularity) {
-        List<TimeSeriesDTO> points = lightningRegionStatisticsMapper.selectTimeSeriesByCondition(
-                buildQuery(since, until, region), resolvePeriodFormat(granularity));
-        // 遍历完整的日期（since - until），缺失的时间段补 0
-        points = fillMissingPeriods(points, since, until, granularity);
+    /**
+     * 雷击火时间轴：区间内按粒度展开的完整时间轴 + 区间内的雷击火点位。
+     *
+     * <p>timeAxis 恒按 since ~ until 展开（含无火日期），保证前端 X 轴连续；
+     * series 为区间内（可按区域过滤）的雷击火记录，按发现时间升序，无记录时为空数组。</p>
+     */
+    public LightningFireTimeAxisVO lightningFireTimeAxis(LocalDate since, LocalDate until,
+                                                        Option.RegionOption region,
+                                                        Option.GranularityOption granularity) {
+        List<LightningFireDTO> series = forestFireStatisticsMapper
+                .selectLightningFireSeries(buildLightningFireQuery(since, until, region));
+        String[] timeAxis = buildTimeAxis(since, until, granularity).toArray(String[]::new);
+        return new LightningFireTimeAxisVO(timeAxis, series.toArray(LightningFireDTO[]::new));
+    }
 
-        List<String> series = new ArrayList<>(points.size());
-        List<Integer> counts = new ArrayList<>(points.size());
-        int maxAt = -1;
-        int maxValue = Integer.MIN_VALUE;
-        for (int i = 0; i < points.size(); i++) {
-            TimeSeriesDTO point = points.get(i);
-            int count = point.count() == null ? 0 : point.count();
-            series.add(point.period());
-            counts.add(count);
-            if (count > maxValue) {
-                maxValue = count;
-                maxAt = i;
-            }
-        }
-        boolean empty = points.isEmpty();
-        return new TimeDimChartDTO(series, counts, empty ? null : maxAt, empty ? null : maxValue);
+    /**
+     * 雷击火要素的时间轴。
+     *
+     * <p>要素序列的数据源尚未接入，这里只返回区间内按粒度展开的完整时间轴，供前端渲染空图表；
+     * 数据接入后在此基础上补充各要素序列即可。</p>
+     */
+    public LightningElementsVO lightningElementsTimeAxis(LocalDate since, LocalDate until, Option.GranularityOption granularity) {
+        return new LightningElementsVO(buildTimeAxis(since, until, granularity).toArray(String[]::new));
     }
 
     /**
@@ -126,41 +145,43 @@ public class LightningFeatureService {
     }
 
     /**
-     * 按 x 轴因子顺序取相关系数，null（无数据/整列为 NULL）记 0。
+     * 按 x 轴因子顺序取相关系数。
      */
     private List<Double> correlationValues(CorrelationCoefficientDTO coefficient) {
         if (coefficient == null) {
-            return List.of(0D, 0D, 0D, 0D, 0D, 0D, 0D);
+            return zeroFactorValues();
         }
-        return List.of(
-                zeroIfNull(coefficient.relativeHumidity()),
-                zeroIfNull(coefficient.temperature()),
-                zeroIfNull(coefficient.rain()),
-                zeroIfNull(coefficient.dem()),
-                zeroIfNull(coefficient.fmc()),
-                zeroIfNull(coefficient.slope()),
-                zeroIfNull(coefficient.windSpeed()));
+        return factorValues(coefficient.relativeHumidity(), coefficient.temperature(), coefficient.rain(),
+                coefficient.dem(), coefficient.fmc(), coefficient.slope(), coefficient.windSpeed());
     }
 
     /**
-     * 按 x 轴因子顺序取主导因子权重，null（无数据/整列为 NULL）记 0。
+     * 按 x 轴因子顺序取主导因子权重。
      */
     private List<Double> leadingFactorValues(LeadingFactorDTO leadingFactor) {
         if (leadingFactor == null) {
-            return List.of(0D, 0D, 0D, 0D, 0D, 0D, 0D);
+            return zeroFactorValues();
         }
-        return List.of(
-                zeroIfNull(leadingFactor.relativeHumidity()),
-                zeroIfNull(leadingFactor.temperature()),
-                zeroIfNull(leadingFactor.rain()),
-                zeroIfNull(leadingFactor.dem()),
-                zeroIfNull(leadingFactor.fmc()),
-                zeroIfNull(leadingFactor.slope()),
-                zeroIfNull(leadingFactor.windSpeed()));
+        return factorValues(leadingFactor.relativeHumidity(), leadingFactor.temperature(), leadingFactor.rain(),
+                leadingFactor.dem(), leadingFactor.fmc(), leadingFactor.slope(), leadingFactor.windSpeed());
     }
 
-    private Double zeroIfNull(Double value) {
-        return value == null ? 0D : value;
+    /**
+     * 按 x 轴因子顺序整理数值，null（无数据 / 整列为 NULL）记 0。
+     */
+    private List<Double> factorValues(Double... values) {
+        List<Double> filled = new ArrayList<>(values.length);
+        for (Double value : values) {
+            filled.add(value == null ? 0D : value);
+        }
+        return filled;
+    }
+
+    /**
+     * 无数据时的全 0 因子序列，长度与 x 轴因子数一致。
+     */
+    private List<Double> zeroFactorValues() {
+        return Collections.nCopies(FACTOR_LABELS.length, 0D);
     }
 
     /**
@@ -177,23 +198,72 @@ public class LightningFeatureService {
         return q;
     }
 
-    private LambdaQueryWrapper<LightningRegionStatistics> buildQuery(LocalDate since, LocalDate until, SelectOption.RegionOption region) {
-        LambdaQueryWrapper<LightningRegionStatistics> q = Wrappers.lambdaQuery();
-        if (since != null) {
-            q.ge(LightningRegionStatistics::getStatDate, since);
-        }
-        if (until != null) {
-            q.le(LightningRegionStatistics::getStatDate, until);
-        }
-        if (region != null && region != SelectOption.RegionOption.all) {
-            q.eq(LightningRegionStatistics::getRegion, region.getLabel());
-        }
+    /**
+     * 地闪统计查询条件：日期区间 + 可选区域。
+     */
+    private LambdaQueryWrapper<LightningRegionStatistics> buildRegionQuery(LocalDate since, LocalDate until, Option.RegionOption region) {
+        LambdaQueryWrapper<LightningRegionStatistics> q =
+                buildDateRangeQuery(since, until, LightningRegionStatistics::getStatDate);
+        applyRegion(q, region, LightningRegionStatistics::getRegion);
         return q;
     }
 
+    /**
+     * 雷击火查询条件：发现时间区间 + 可选区域。
+     *
+     * <p>until 为闭区间端点，取「小于次日零点」，既包含一整天又不依赖时间部分的精度。</p>
+     */
+    private LambdaQueryWrapper<ForestFireStatistics> buildLightningFireQuery(LocalDate since, LocalDate until, Option.RegionOption region) {
+        LambdaQueryWrapper<ForestFireStatistics> q = Wrappers.lambdaQuery();
+        if (since != null) {
+            q.ge(ForestFireStatistics::getDiscoveredAt, since.atStartOfDay());
+        }
+        if (until != null) {
+            q.lt(ForestFireStatistics::getDiscoveredAt, until.plusDays(1).atStartOfDay());
+        }
+        applyRegion(q, region, ForestFireStatistics::getRegion);
+        return q;
+    }
 
-    private String resolvePeriodFormat(SelectOption.GranularityOption granularity) {
-        return switch (granularity == null ? SelectOption.GranularityOption.DAY : granularity) {
+    /**
+     * 区域条件：为空或 all（大兴安岭地区）表示不限定区域，其余按区域名称（枚举 label）过滤。
+     */
+    private <T> void applyRegion(LambdaQueryWrapper<T> q, Option.RegionOption region, SFunction<T, String> regionColumn) {
+        if (region != null && region != Option.RegionOption.all) {
+            q.eq(regionColumn, region.getLabel());
+        }
+    }
+
+    /**
+     * 将 since ~ until 按粒度展开为完整时间轴，如 2024-06-01 / 2024-06 / 2024。
+     *
+     * <p>区间端点先归一到粒度起点（月取当月 1 号、年取当年 1 月 1 号）；
+     * since / until 为空或 since 晚于 until 时无法确定完整轴，返回空数组。</p>
+     */
+    private List<String> buildTimeAxis(LocalDate since, LocalDate until, Option.GranularityOption granularity) {
+        if (since == null || until == null) {
+            return List.of();
+        }
+
+        LocalDate start = truncate(since, granularity);
+        LocalDate end = truncate(until, granularity);
+        if (start.isAfter(end)) {
+            return List.of();
+        }
+
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern(periodFormat(granularity));
+        List<String> axis = new ArrayList<>();
+        for (LocalDate cursor = start; !cursor.isAfter(end); cursor = next(cursor, granularity)) {
+            axis.add(cursor.format(formatter));
+        }
+        return axis;
+    }
+
+    /**
+     * 时间标签格式：天 yyyy-MM-dd，月 yyyy-MM，年 yyyy。
+     */
+    private String periodFormat(Option.GranularityOption granularity) {
+        return switch (effective(granularity)) {
             case MONTH -> "yyyy-MM";
             case YEAR -> "yyyy";
             default -> "yyyy-MM-dd";
@@ -201,42 +271,10 @@ public class LightningFeatureService {
     }
 
     /**
-     * 将查询结果按粒度展开为 since - until 的完整时间轴，缺失的时间段补 0。
-     * <p>since / until 为空（或区间内无数据）时无法确定完整轴，原样返回查询结果。</p>
-     */
-    private List<TimeSeriesDTO> fillMissingPeriods(List<TimeSeriesDTO> points, LocalDate since, LocalDate until,
-                                                  SelectOption.GranularityOption granularity) {
-        if (since == null || until == null) {
-            return points;
-        }
-
-        LocalDate start = truncate(since, granularity);
-        LocalDate end = truncate(until, granularity);
-        if (start.isAfter(end)) {
-            return points;
-        }
-
-        Map<String, Integer> countsByPeriod = new LinkedHashMap<>();
-        for (TimeSeriesDTO point : points) {
-            countsByPeriod.put(point.period(), point.count() == null ? 0 : point.count());
-        }
-
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern(resolvePeriodFormat(granularity));
-        List<TimeSeriesDTO> filled = new ArrayList<>();
-        LocalDate cursor = start;
-        while (!cursor.isAfter(end)) {
-            String period = cursor.format(formatter);
-            filled.add(new TimeSeriesDTO(period, countsByPeriod.getOrDefault(period, 0)));
-            cursor = next(cursor, granularity);
-        }
-        return filled;
-    }
-
-    /**
      * 按粒度取区间起点：天取当天，月取当月 1 号，年取当年 1 月 1 号。
      */
-    private LocalDate truncate(LocalDate date, SelectOption.GranularityOption granularity) {
-        return switch (granularity == null ? SelectOption.GranularityOption.DAY : granularity) {
+    private LocalDate truncate(LocalDate date, Option.GranularityOption granularity) {
+        return switch (effective(granularity)) {
             case MONTH -> date.withDayOfMonth(1);
             case YEAR -> date.withDayOfYear(1);
             default -> date;
@@ -246,11 +284,18 @@ public class LightningFeatureService {
     /**
      * 按粒度前进一步：天 +1 天，月 +1 月，年 +1 年。
      */
-    private LocalDate next(LocalDate date, SelectOption.GranularityOption granularity) {
-        return switch (granularity == null ? SelectOption.GranularityOption.DAY : granularity) {
+    private LocalDate next(LocalDate date, Option.GranularityOption granularity) {
+        return switch (effective(granularity)) {
             case MONTH -> date.plusMonths(1);
             case YEAR -> date.plusYears(1);
             default -> date.plusDays(1);
         };
+    }
+
+    /**
+     * 粒度缺省值：未指定时按天。
+     */
+    private Option.GranularityOption effective(Option.GranularityOption granularity) {
+        return granularity == null ? Option.GranularityOption.DAY : granularity;
     }
 }

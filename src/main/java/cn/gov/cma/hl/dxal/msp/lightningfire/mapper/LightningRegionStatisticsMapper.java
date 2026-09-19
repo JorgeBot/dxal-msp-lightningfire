@@ -1,6 +1,6 @@
 package cn.gov.cma.hl.dxal.msp.lightningfire.mapper;
 
-import cn.gov.cma.hl.dxal.msp.lightningfire.dto.lightningfeature.GridDTO;
+import cn.gov.cma.hl.dxal.msp.lightningfire.dto.lightningfeature.LightningCharacteristicsDTO;
 import cn.gov.cma.hl.dxal.msp.lightningfire.dto.lightningfeature.RegionCountDTO;
 import cn.gov.cma.hl.dxal.msp.lightningfire.dto.lightningfeature.TimeSeriesDTO;
 import cn.gov.cma.hl.dxal.msp.lightningfire.entity.LightningRegionStatistics;
@@ -25,7 +25,7 @@ public interface LightningRegionStatisticsMapper extends BaseMapper<LightningReg
             FROM lightning_region_statistics
             ${ew.customSqlSegment}
             """)
-    GridDTO selectLightningSummaryByCondition(@Param(Constants.WRAPPER) Wrapper<LightningRegionStatistics> wrapper);
+    LightningCharacteristicsDTO selectLightningSummaryByCondition(@Param(Constants.WRAPPER) Wrapper<LightningRegionStatistics> wrapper);
 
     @Select("""
             SELECT
