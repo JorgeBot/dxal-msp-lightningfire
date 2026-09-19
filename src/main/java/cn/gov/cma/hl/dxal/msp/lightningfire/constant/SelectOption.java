@@ -26,20 +26,6 @@ public class SelectOption {
     }
 
     @Getter
-    public enum AnalysisMethodOption {
-        spatial("时空分布"),
-        factor("主导因子筛选"),
-        correlation("相关关系分析"),
-        ;
-
-        private final String label;
-
-        AnalysisMethodOption(String label) {
-            this.label = label;
-        }
-    }
-
-    @Getter
     public enum RegionOption {
         all("大兴安岭地区"),
         hzh("呼中区"),

@@ -3,21 +3,19 @@ package cn.gov.cma.hl.dxal.msp.lightningfire.controller;
 import cn.gov.cma.hl.dxal.msp.lightningfire.constant.SelectOption;
 import cn.gov.cma.hl.dxal.msp.lightningfire.dto.ResponseDTO;
 import cn.gov.cma.hl.dxal.msp.lightningfire.dto.lightningfeature.GridDTO;
-import cn.gov.cma.hl.dxal.msp.lightningfire.dto.lightningfeature.RegionDimChartDTO;
 import cn.gov.cma.hl.dxal.msp.lightningfire.dto.lightningfeature.TimeDimChartDTO;
 import cn.gov.cma.hl.dxal.msp.lightningfire.dto.request.KeyElementSummaryDTO;
 import cn.gov.cma.hl.dxal.msp.lightningfire.service.LightningFeatureService;
+import cn.gov.cma.hl.dxal.msp.lightningfire.vo.CorrelationCoefficientVO;
 import cn.gov.cma.hl.dxal.msp.lightningfire.vo.KeyElementSummaryVO;
+import cn.gov.cma.hl.dxal.msp.lightningfire.vo.LeadingFactorVO;
 import cn.gov.cma.hl.dxal.msp.lightningfire.vo.SelectOptionVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.List;
 
@@ -41,14 +39,6 @@ public class LightningEnvironmentController {
         return ResponseDTO.success(optionVOS);
     }
 
-    @Operation(summary = "分析方法", description = "select 中的 option 元素")
-    @GetMapping("/analysis-method/options")
-    public ResponseDTO<SelectOptionVO[]> getAnalysisMethodOptions() {
-        SelectOptionVO[] optionVOS = Arrays.stream(SelectOption.AnalysisMethodOption.values())
-                .map(e -> new SelectOptionVO(e.getLabel(), e.name()))
-                .toArray(SelectOptionVO[]::new);
-        return ResponseDTO.success(optionVOS);
-    }
 
     @Operation(summary = "分析区域", description = "select 中的 option 元素")
     @GetMapping("/region/options")
@@ -71,18 +61,27 @@ public class LightningEnvironmentController {
         );
 
         TimeDimChartDTO timeDim = lightningFeatureService.timeDimensionChart(payload.since(), payload.until(), payload.region(), payload.granularity());
-        RegionDimChartDTO regionDim = lightningFeatureService.regionDimensionChart(payload.since(), payload.until(), payload.region());
 
         KeyElementSummaryVO.TimeDimChart timeDimChart = new KeyElementSummaryVO.TimeDimChart(
                 timeDim.series().toArray(String[]::new),
                 timeDim.count().toArray(Integer[]::new),
                 timeDim.maxAt(),
                 timeDim.maxValue());
-        KeyElementSummaryVO.RegionDimChart regionDimChart = new KeyElementSummaryVO.RegionDimChart(
-                regionDim.region().toArray(String[]::new),
-                regionDim.count().toArray(Integer[]::new));
 
-        return ResponseDTO.success(new KeyElementSummaryVO(articles, timeDimChart, regionDimChart));
+        return ResponseDTO.success(new KeyElementSummaryVO(articles, timeDimChart));
     }
+
+    @Operation(summary = "相关系数条形图", description = "区间内各环境因子相关系数的均值，无数据记 0，正负使用不同的颜色")
+    @GetMapping("/bar-chart/correlation-coefficient")
+    public ResponseDTO<CorrelationCoefficientVO> getCorrelationCoefficientBarChart(@RequestParam("since") LocalDate since, @RequestParam("until") LocalDate until) {
+        return ResponseDTO.success(lightningFeatureService.correlationCoefficientBarChart(since, until));
+    }
+
+    @Operation(summary = "主导因子条形图", description = "区间内各环境主导因子相关系数的均值，无数据记 0")
+    @GetMapping("/bar-chart/leading-factor")
+    public ResponseDTO<LeadingFactorVO> getLeadingFactorBarChart(@RequestParam("since") LocalDate since, @RequestParam("until") LocalDate until) {
+        return ResponseDTO.success(lightningFeatureService.leadingFactorBarChart(since, until));
+    }
+
 
 }

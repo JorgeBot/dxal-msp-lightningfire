@@ -11,12 +11,11 @@ import java.time.LocalDate;
 /**
  * 每日各地区强度记录统计
  *
- * @TableName daily_region_statistics
  */
 @Data
 @Accessors(chain = true)
-@TableName("daily_region_statistics")
-public class DailyRegionStatistics {
+@TableName("lightning_region_statistics")
+public class LightningRegionStatistics {
 
     /**
      * 统计日期，取原始 datetime 的自然日
