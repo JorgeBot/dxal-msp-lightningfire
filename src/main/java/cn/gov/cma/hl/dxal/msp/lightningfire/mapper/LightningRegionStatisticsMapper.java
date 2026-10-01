@@ -41,12 +41,12 @@ public interface LightningRegionStatisticsMapper extends BaseMapper<LightningReg
 
     @Select("""
             SELECT
-                region,
+                region_name,
                 COALESCE(SUM(record_count), 0) AS count
             FROM lightning_region_statistics
             ${ew.customSqlSegment}
-            GROUP BY region
-            ORDER BY region
+            GROUP BY region_name
+            ORDER BY region_name
             """)
     List<RegionCountDTO> selectRegionCountByCondition(@Param(Constants.WRAPPER) Wrapper<LightningRegionStatistics> wrapper);
 }

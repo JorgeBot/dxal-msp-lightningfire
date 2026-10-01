@@ -36,14 +36,14 @@ public class ThunderstormStatistics {
     private String region;
 
     /**
-     * 年份，取值 1 至 9999
+     * 年份，取值 1 至 9999（数据库 smallint）
      */
     @TableField("observation_year")
-    private Integer observationYear;
+    private Short observationYear;
 
     /**
-     * 年雷暴日数，单位：天，取值 0 至当年天数（平年 365、闰年 366）
+     * 年雷暴日数，单位：天，取值 0 至当年天数（平年 365、闰年 366）（数据库 smallint）
      */
     @TableField("thunderstorm_days")
-    private Integer thunderstormDays;
+    private Short thunderstormDays;
 }

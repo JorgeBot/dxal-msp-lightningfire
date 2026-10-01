@@ -1,5 +1,6 @@
 package cn.gov.cma.hl.dxal.msp.lightningfire.entity;
 
+import cn.gov.cma.hl.dxal.msp.lightningfire.constant.RegionCode;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -24,10 +25,16 @@ public class LightningRegionStatistics {
     private LocalDate statDate;
 
     /**
+     * 行政区划代码（6 位，GB/T 2260），取值参照 {@link RegionCode}
+     */
+    @TableField(value = "region_code")
+    private Integer regionCode;
+
+    /**
      * 地区名称，对应原始 country 字段
      */
-    @TableField(value = "region")
-    private String region;
+    @TableField(value = "region_name")
+    private String regionName;
 
     /**
      * 地闪记录总数

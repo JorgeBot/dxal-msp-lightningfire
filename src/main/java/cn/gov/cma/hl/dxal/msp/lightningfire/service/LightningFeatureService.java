@@ -1,10 +1,12 @@
 package cn.gov.cma.hl.dxal.msp.lightningfire.service;
 
 import cn.gov.cma.hl.dxal.msp.lightningfire.constant.Option;
+import cn.gov.cma.hl.dxal.msp.lightningfire.constant.RegionCode;
 import cn.gov.cma.hl.dxal.msp.lightningfire.dto.lightningfeature.CorrelationCoefficientDTO;
 import cn.gov.cma.hl.dxal.msp.lightningfire.dto.lightningfeature.LeadingFactorDTO;
 import cn.gov.cma.hl.dxal.msp.lightningfire.dto.lightningfeature.LightningCharacteristicsDTO;
 import cn.gov.cma.hl.dxal.msp.lightningfire.dto.lightningfeature.LightningFireDTO;
+import cn.gov.cma.hl.dxal.msp.lightningfire.dto.lightningfeature.LightningFireSummaryDTO;
 import cn.gov.cma.hl.dxal.msp.lightningfire.entity.CorrelationCoefficientStatistics;
 import cn.gov.cma.hl.dxal.msp.lightningfire.entity.ForestFireStatistics;
 import cn.gov.cma.hl.dxal.msp.lightningfire.entity.LeadingFactorStatistics;
@@ -15,7 +17,6 @@ import cn.gov.cma.hl.dxal.msp.lightningfire.mapper.LeadingFactorStatisticsMapper
 import cn.gov.cma.hl.dxal.msp.lightningfire.mapper.LightningRegionStatisticsMapper;
 import cn.gov.cma.hl.dxal.msp.lightningfire.vo.CorrelationCoefficientVO;
 import cn.gov.cma.hl.dxal.msp.lightningfire.vo.LeadingFactorVO;
-import cn.gov.cma.hl.dxal.msp.lightningfire.vo.LightningElementsVO;
 import cn.gov.cma.hl.dxal.msp.lightningfire.vo.LightningFireTimeAxisVO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -46,6 +47,11 @@ public class LightningFeatureService {
     private static final LightningCharacteristicsDTO EMPTY_CHARACTERISTICS =
             new LightningCharacteristicsDTO(0, 0F, 0F, 0F);
 
+    /**
+     * 雷击火统计兜底值：聚合查询恒返回一行，仅在查询结果意外为空时使用。
+     */
+    private static final LightningFireSummaryDTO EMPTY_FIRE_SUMMARY = new LightningFireSummaryDTO(0L, 0D, 0D);
+
     private final LightningRegionStatisticsMapper lightningRegionStatisticsMapper;
 
     private final CorrelationCoefficientStatisticsMapper correlationCoefficientStatisticsMapper;
@@ -60,9 +66,9 @@ public class LightningFeatureService {
      * <p>比例 / 密度 / 强度按各地区地闪记录数加权平均，已由 SQL 完成聚合与四舍五入；
      * 无数据时各项均记 0，不返回 null。</p>
      */
-    public LightningCharacteristicsDTO lightningCharacteristics(LocalDate since, LocalDate until, Option.RegionOption region) {
+    public LightningCharacteristicsDTO lightningCharacteristics(LocalDate since, LocalDate until, RegionCode regionCode) {
         LightningCharacteristicsDTO characteristics = lightningRegionStatisticsMapper
-                .selectLightningSummaryByCondition(buildRegionQuery(since, until, region));
+                .selectLightningSummaryByCondition(buildRegionQuery(since, until, regionCode));
         return characteristics == null ? EMPTY_CHARACTERISTICS : characteristics;
     }
 
@@ -73,22 +79,24 @@ public class LightningFeatureService {
      * series 为区间内（可按区域过滤）的雷击火记录，按发现时间升序，无记录时为空数组。</p>
      */
     public LightningFireTimeAxisVO lightningFireTimeAxis(LocalDate since, LocalDate until,
-                                                        Option.RegionOption region,
+                                                        RegionCode regionCode,
                                                         Option.GranularityOption granularity) {
         List<LightningFireDTO> series = forestFireStatisticsMapper
-                .selectLightningFireSeries(buildLightningFireQuery(since, until, region));
+                .selectLightningFireSeries(buildLightningFireQuery(since, until, regionCode));
         String[] timeAxis = buildTimeAxis(since, until, granularity).toArray(String[]::new);
         return new LightningFireTimeAxisVO(timeAxis, series.toArray(LightningFireDTO[]::new));
     }
 
     /**
-     * 雷击火要素的时间轴。
+     * 雷击火统计：区间内（可按区域过滤）的事件次数、过火面积合计与平均过火面积。
      *
-     * <p>要素序列的数据源尚未接入，这里只返回区间内按粒度展开的完整时间轴，供前端渲染空图表；
-     * 数据接入后在此基础上补充各要素序列即可。</p>
+     * <p>聚合已由 SQL 完成，无记录时三项均为 0；过火面积单位 hm²，与源档案一致。
+     * 点位密度需要区域面积，属展示口径，由统计概览按区域面积常量（RegionArea）另行计算。</p>
      */
-    public LightningElementsVO lightningElementsTimeAxis(LocalDate since, LocalDate until, Option.GranularityOption granularity) {
-        return new LightningElementsVO(buildTimeAxis(since, until, granularity).toArray(String[]::new));
+    public LightningFireSummaryDTO lightningFireSummary(LocalDate since, LocalDate until, RegionCode regionCode) {
+        LightningFireSummaryDTO summary = forestFireStatisticsMapper
+                .selectLightningFireSummary(buildLightningFireQuery(since, until, regionCode));
+        return summary == null ? EMPTY_FIRE_SUMMARY : summary;
     }
 
     /**
@@ -201,10 +209,10 @@ public class LightningFeatureService {
     /**
      * 地闪统计查询条件：日期区间 + 可选区域。
      */
-    private LambdaQueryWrapper<LightningRegionStatistics> buildRegionQuery(LocalDate since, LocalDate until, Option.RegionOption region) {
+    private LambdaQueryWrapper<LightningRegionStatistics> buildRegionQuery(LocalDate since, LocalDate until, RegionCode regionCode) {
         LambdaQueryWrapper<LightningRegionStatistics> q =
                 buildDateRangeQuery(since, until, LightningRegionStatistics::getStatDate);
-        applyRegion(q, region, LightningRegionStatistics::getRegion);
+        applyRegion(q, regionCode, LightningRegionStatistics::getRegionName);
         return q;
     }
 
@@ -213,7 +221,7 @@ public class LightningFeatureService {
      *
      * <p>until 为闭区间端点，取「小于次日零点」，既包含一整天又不依赖时间部分的精度。</p>
      */
-    private LambdaQueryWrapper<ForestFireStatistics> buildLightningFireQuery(LocalDate since, LocalDate until, Option.RegionOption region) {
+    private LambdaQueryWrapper<ForestFireStatistics> buildLightningFireQuery(LocalDate since, LocalDate until, RegionCode region) {
         LambdaQueryWrapper<ForestFireStatistics> q = Wrappers.lambdaQuery();
         if (since != null) {
             q.ge(ForestFireStatistics::getDiscoveredAt, since.atStartOfDay());
@@ -226,11 +234,23 @@ public class LightningFeatureService {
     }
 
     /**
-     * 区域条件：为空或 all（大兴安岭地区）表示不限定区域，其余按区域名称（枚举 label）过滤。
+     * 区域条件：把 6 位区划码表达的选区落到「地区名」列上。
+     *
+     * <p>地闪统计表（region_name）与雷击火记录表（region）都按地区名称存区域，没有区划码列，
+     * 因此取 {@link RegionCode#selectable(Integer)} 给出的选区内县区名做 IN 过滤：全省（230000）
+     * 为省内全部县区、地市（如 232700）为所辖县区、县区（如 232701）为该县区本身。
+     * 直接按地市名过滤会漏掉县级记录（两表都只有县区行），按码段过滤又依赖列内容格式，
+     * 故统一由枚举给出「选区内有哪些区划」这一条规则。</p>
      */
-    private <T> void applyRegion(LambdaQueryWrapper<T> q, Option.RegionOption region, SFunction<T, String> regionColumn) {
-        if (region != null && region != Option.RegionOption.all) {
-            q.eq(regionColumn, region.getLabel());
+    private <T> void applyRegion(LambdaQueryWrapper<T> q, RegionCode regionCode, SFunction<T, String> regionColumn) {
+        if (regionCode == null) {
+            return;
+        }
+        List<String> regionNames = RegionCode.selectable(regionCode.getCode()).stream()
+                .map(RegionCode::getLabel)
+                .toList();
+        if (!regionNames.isEmpty()) {
+            q.in(regionColumn, regionNames);
         }
     }
 

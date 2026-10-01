@@ -1,6 +1,7 @@
 package cn.gov.cma.hl.dxal.msp.lightningfire.mapper;
 
 import cn.gov.cma.hl.dxal.msp.lightningfire.dto.lightningfeature.LightningFireDTO;
+import cn.gov.cma.hl.dxal.msp.lightningfire.dto.lightningfeature.LightningFireSummaryDTO;
 import cn.gov.cma.hl.dxal.msp.lightningfire.entity.ForestFireStatistics;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
@@ -36,4 +37,20 @@ public interface ForestFireStatisticsMapper extends BaseMapper<ForestFireStatist
             ORDER BY discovered_at
             """)
     List<LightningFireDTO> selectLightningFireSeries(@Param(Constants.WRAPPER) Wrapper<ForestFireStatistics> wrapper);
+
+    /**
+     * 雷击火统计：区间内（可按区域过滤）的事件次数、过火面积合计与平均过火面积。
+     *
+     * <p>不带 GROUP BY 的聚合恒返回一行：无记录时 COUNT 为 0、SUM / AVG 为 NULL，已用 COALESCE 记 0，
+     * 因此三项都非 null。过火面积与源档案同为 hm²，单位换算与展示精度由服务层负责。</p>
+     */
+    @Select("""
+            SELECT
+                COUNT(*) AS fire_count,
+                COALESCE(SUM(total_area), 0) AS total_area,
+                COALESCE(AVG(total_area), 0) AS avg_area
+            FROM forest_fire_statistics
+            ${ew.customSqlSegment}
+            """)
+    LightningFireSummaryDTO selectLightningFireSummary(@Param(Constants.WRAPPER) Wrapper<ForestFireStatistics> wrapper);
 }
