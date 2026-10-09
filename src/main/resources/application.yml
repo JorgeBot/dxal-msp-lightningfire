@@ -2,7 +2,7 @@ spring:
   application:
     name: dxal-msp-lightningfire
   datasource:
-    url: jdbc:postgresql://8.141.3.227:31250/gis?currentSchema=public&stringtype=unspecified
+    url: jdbc:postgresql://111.205.114.166:15010/gis?currentSchema=public&stringtype=unspecified
     username: gis
     password: 'pPflq8TWGa9txIG8'
     hikari:
@@ -20,6 +20,9 @@ knife4j:
 
 file-root:
   risk-assessment: 'C:/Users/PC/Desktop/HLJ/s3_Indicators'
+  # 危险性 H 年度均值栅格目录（H_mean_{年份}.tif）。留空或不配置时按交接包约定取
+  # {file-root.risk-assessment}/H_annual_mean_TIFF。
+  risk-assessment-h: ''
 
 server:
   port: 18880

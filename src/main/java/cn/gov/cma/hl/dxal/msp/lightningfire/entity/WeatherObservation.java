@@ -1,21 +1,34 @@
 package cn.gov.cma.hl.dxal.msp.lightningfire.entity;
 
-import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
-import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.experimental.Accessors;
 
+import java.time.LocalDate;
+
 /**
- * 黑龙江省区县级年度气象要素与湿润指数
+ * 黑龙江省区县级逐日气象要素与年内累计湿润指数
  *
- * <p>对应表 weather_observations，粒度：评价年份 × 区县。
- * 来源 tmp/2018-2025.csv 全国站点日值，按 region.txt 编码聚合，覆盖 2018—2025 年。</p>
+ * <p>对应表 weather_observations，粒度：采集日期 × 区县（密集日历网格，无观测日为 NULL），
+ * 覆盖 2018-01-01—2025-12-31，125 个区县，实测 365250 行。来源 tmp/2018-2025.csv 全国站点日值，
+ * 按 region.txt 编码聚合；region_level 本表统一为 county。</p>
  *
- * <p>联合主键 (assessment_year, region_code)，MyBatis-Plus 的单主键 API（如 {@code selectById} /
- * {@code updateById} / {@code deleteById}）不可用，请使用 Wrapper 条件操作；
- * 表上另有索引 (region_code, assessment_year)。</p>
+ * <p>两类列要分清：</p>
+ * <ul>
+ *   <li>当日值：{@code precipitation_mm}（当日降水）、{@code avg_temperature_c}（当日平均气温）、
+ *       {@code avg_relative_humidity_pct}、{@code avg_wind_speed_ms}，均为当日各上报站点等权平均；</li>
+ *   <li>年内累计值：{@code precip_ytd_mm}（年初至当日累计降水）、{@code active_temp_sum_ytd_c}
+ *       （年初至当日累计活跃积温 ΣT≥10℃）、{@code moisture_index}（年内累计湿润指数
+ *       = 年内累计降水 ÷ (0.1 × 年内累计活跃积温)）。三者都从年初重新累计，跨年不连续，
+ *       累计积温 ≤ 0 时空值。</li>
+ * </ul>
+ *
+ * <p>主键 (assessment_date, region_code)：MyBatis-Plus 的单主键 API（如 {@code selectById} /
+ * {@code updateById} / {@code deleteById}）不可用，请使用 Wrapper 条件操作；日期条件用
+ * {@code assessment_date} 的区间表达，不再有年度列。本表是逐日数据，按区间取数时由 SQL 聚合，
+ * 不要把日值当年度值再聚合一次（例如年度湿润指数不能由逐日 {@code moisture_index} 平均得到，
+ * 见 {@link cn.gov.cma.hl.dxal.msp.lightningfire.mapper.WeatherObservationMapper}）。</p>
  */
 @Data
 @Accessors(chain = true)
@@ -23,17 +36,15 @@ import lombok.experimental.Accessors;
 public class WeatherObservation {
 
     /**
-     * 年份（取自 Datetime 列），联合主键之一，取值 2018—2025
+     * 采集日期（取自源数据 Datetime 列），主键之一，覆盖 2018—2025
      *
-     * <p>仅标注联合主键中的首列，避免 MyBatis-Plus 元数据初始化报
-     * “There must be only one, but 2 was found”的一般错误；
-     * 第二条主键列 region_code 以普通字段参与，条件查询请使用 Wrapper。</p>
+     * <p>逐日数据：按区间查询时用本列的范围条件表达 since ~ until，不再按自然年取整。</p>
      */
-    @TableId(value = "assessment_year", type = IdType.INPUT)
-    private Short assessmentYear;
+    @TableField("assessment_date")
+    private LocalDate assessmentDate;
 
     /**
-     * 区县 6 位行政区划代码，取自 region.txt，联合主键之二
+     * 区县 6 位行政区划代码，取自 region.txt，主键之二
      */
     @TableField("region_code")
     private Integer regionCode;
@@ -45,62 +56,61 @@ public class WeatherObservation {
     private String regionName;
 
     /**
-     * 行政层级，本表统一为 'county'（数据库默认值 county）
+     * 行政层级，本表统一为 'county'
      */
     @TableField("region_level")
     private String regionLevel;
 
     /**
-     * 年降水量合计(mm)，县内各站点年降水量的等权平均
+     * 当日降水量(mm)：当日各上报站点等权平均；自动站 11—3 月多缺测，为空表示当日缺测
      */
     @TableField("precipitation_mm")
     private Double precipitationMm;
 
     /**
-     * 年平均气温(℃)，先按站点算年均再对县内站点等权平均
+     * 当日平均气温(℃)：当日各上报站点等权平均
      */
     @TableField("avg_temperature_c")
     private Double avgTemperatureC;
 
     /**
-     * 年平均相对湿度(%)
+     * 当日平均相对湿度(%)
      */
     @TableField("avg_relative_humidity_pct")
     private Double avgRelativeHumidityPct;
 
     /**
-     * 年平均风速(m/s)
+     * 当日平均风速(m/s)
      */
     @TableField("avg_wind_speed_ms")
     private Double avgWindSpeedMs;
 
     /**
-     * 湿润指数 = 谢利亚尼诺夫水热系数 K = 年降水量mm / (0.1 × ΣT≥10℃)；积温 ≤ 0 时为空
+     * 年内累计湿润指数 = 年初至当日累计降水mm ÷ (0.1 × 年初至当日累计活跃积温℃)；
+     * 累计积温 ≤ 0 时为空
+     *
+     * <p>注意这是「年初至当日」的累计值，不是当日值、也不是年度终值：3—5 月分母很小、数值不稳定，
+     * 年内单调性也不保证（累计积温按 ΣT≥10℃ 累加）。年度湿润指数取该年最后一日的本列值，
+     * 多年平均不能对逐日值直接求平均。</p>
      */
     @TableField("moisture_index")
     private Double moistureIndex;
 
     /**
-     * 参与该县当年统计的站点数
+     * 当日参与统计的站点数；为空表示当日无任何站点上报
      */
     @TableField("station_count")
     private Short stationCount;
 
     /**
-     * 参与统计的有效记录数（站点 × 日，已去重）
+     * 年初至当日累计降水量(mm)，等于 {@code precipitation_mm} 列的年内求和
      */
-    @TableField("valid_days")
-    private Integer validDays;
+    @TableField("precip_ytd_mm")
+    private Double precipYtdMm;
 
     /**
-     * 活跃积温 ΣT≥10℃(℃)：日平均气温 ≥ 10℃ 的积温合计，县内站点等权平均
+     * 年初至当日累计活跃积温 ΣT≥10℃(℃)，由入库后的日值累加，保留 2 位小数
      */
-    @TableField("active_temp_sum_c")
-    private Double activeTempSumC;
-
-    /**
-     * 降水有效记录数合计（站点 × 日）
-     */
-    @TableField("precip_days")
-    private Integer precipDays;
+    @TableField("active_temp_sum_ytd_c")
+    private Double activeTempSumYtdC;
 }

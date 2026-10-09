@@ -6,8 +6,11 @@ import cn.gov.cma.hl.dxal.msp.lightningfire.constant.RegionCode;
 import cn.gov.cma.hl.dxal.msp.lightningfire.dto.ResponseDTO;
 import cn.gov.cma.hl.dxal.msp.lightningfire.service.ExposureAssessmentService;
 import cn.gov.cma.hl.dxal.msp.lightningfire.service.RegionCodeService;
+import cn.gov.cma.hl.dxal.msp.lightningfire.service.RiskAssessmentService;
 import cn.gov.cma.hl.dxal.msp.lightningfire.service.VulnerabilityAssessmentService;
 import cn.gov.cma.hl.dxal.msp.lightningfire.vo.ExposureStatisticsVO;
+import cn.gov.cma.hl.dxal.msp.lightningfire.vo.RiskAssessmentComponentsVO;
+import cn.gov.cma.hl.dxal.msp.lightningfire.vo.RiskAssessmentStatisticsVO;
 import cn.gov.cma.hl.dxal.msp.lightningfire.vo.SelectOptionVO;
 import cn.gov.cma.hl.dxal.msp.lightningfire.vo.VulnerabilityStatisticsVO;
 import io.swagger.v3.oas.annotations.Operation;
@@ -59,9 +62,17 @@ public class RiskAssessmentController {
             AHP 方案号 0—6，仅 indicator=compositeVulnerability 时生效；\
             默认 0（AHP基准矩阵），取值可通过 /risk-assessment/vulnerability/scheme/options 获取""";
 
+    private static final String RISK_YEAR_DESC = "评价年份 2018—2024（危险性统计表的覆盖范围，2020 年源数据只到 34 天）";
+
+    private static final String RISK_SCHEME_DESC = """
+            AHP 方案号 0—6，仅影响暴露度 E 与脆弱性 V 的取值（危险性 H 与方案无关）；\
+            默认 0（AHP基准矩阵），取值可通过 /risk-assessment/vulnerability/scheme/options 获取""";
+
     private final ExposureAssessmentService exposureAssessmentService;
 
     private final VulnerabilityAssessmentService vulnerabilityAssessmentService;
+
+    private final RiskAssessmentService riskAssessmentService;
 
     private final RegionCodeService regionCodeService;
 
@@ -231,6 +242,108 @@ public class RiskAssessmentController {
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         ContentDisposition.inline().filename(file.getFileName().toString()).build().toString())
                 .body(new FileSystemResource(file));
+    }
+
+    /**
+     * 综合风险评估与区划模块：危险性评分的区域指数、评分区间占比与区县对比。
+     *
+     * <p>数据源为危险性统计表 dangerousness_statistics 的 score 列（0—100 百分制），该表按
+     * 「日期 × 区县 × 地级市」逐日存放评分，region 列是区县名、city 列是地市名，没有行政区划代码，
+     * 故本模块按 {@link RegionCode} 的地区名匹配（地市名定位地市，地市名 + 区县名定位区县），
+     * 与承载体暴露度（{@code exposure_*_summary}）、承载体脆弱性（{@code *_summary}）
+     * 按 region_code 取数的方式不同。</p>
+     *
+     * <p>与 AHP 无关：区域评分指数是该区在评价年份内有记录日期的评分均值，不按方案号合成，
+     * 也不读取承载体暴露度 / 脆弱性的汇总表；因此本模块没有 schemeId 参数，
+     * 页面上的方案选择只影响承载体暴露度与脆弱性两个模块。</p>
+     */
+    @Operation(summary = "综合风险评估与区划·评分统计",
+            description = """
+                    返回所选行政区在评价年份内的风险评分均值（0—100 百分制）、评分区间记录日占比\
+                    （0—100 等宽 20 分五档，前四档左闭右开、末档含上界）与评分均值对比柱状图；\
+                    指数口径：县市区为其记录均值，地市为所辖县区均值的等权均值，全省为各地市均值的等权均值\
+                    （按行政区等权，表中没有面积列，不做面积加权）；\
+                    对比口径：选择全省返回各地市前 5，选择地市返回所辖县区前 5，选择县区返回其本身，\
+                    记录缺失的区县不参与排名；\
+                    评价年份取自然年，数据源只覆盖 2018—2024（2020 年只有 34 天记录），\
+                    该年份或该行政区没有评分记录时返回 404，不以 0 或空图表冒充无数据；\
+                    validDays 与 coverage 为所选范围内各行政区有记录日数与完整率的平均值，\
+                    只用于提示源数据完整程度；regionCode 不是有效区划码时返回 400""")
+    @GetMapping("/statistics")
+    public ResponseDTO<RiskAssessmentStatisticsVO> getRiskAssessmentStatistics(
+            @Parameter(description = RISK_YEAR_DESC, example = "2018")
+            @RequestParam("year") Short year,
+            @Parameter(description = RegionCodeService.CODE_DESC, example = "232700")
+            @RequestParam("regionCode") Integer regionCode) {
+        RegionCode region = regionCodeService.requireCode(regionCode);
+        RiskAssessmentStatisticsVO statistics = riskAssessmentService.riskAssessmentStatistics(year, region);
+        if (statistics == null) {
+            return ResponseDTO.failure(HttpStatus.NOT_FOUND.value(),
+                    "该年份与行政区域没有「危险性评分」的统计数据");
+        }
+        return ResponseDTO.success(statistics);
+    }
+
+    @Operation(summary = "综合风险评估与区划·评分区间 【OPTIONS】",
+            description = "select 选项，value 为评分区间取值，label 为「风险等级 下界—上界」；"
+                    + "评分区间为 0—100 等宽 20 分五档，与统计接口返回的 bins 一一对应")
+    @GetMapping("/grade/options")
+    public ResponseDTO<SelectOptionVO[]> getRiskGradeOptions() {
+        SelectOptionVO[] optionVOS = Arrays.stream(Option.RiskGradeOption.values())
+                .map(e -> new SelectOptionVO(e.getBinLabel(), e.name()))
+                .toArray(SelectOptionVO[]::new);
+        return ResponseDTO.success(optionVOS);
+    }
+
+    @Operation(summary = "综合风险评估与区划·危险性 H 年度均值栅格 【FILE】",
+            description = """
+                    返回交接包中危险性 H 的逐年均值栅格，文件名为 H_mean_{评价年份}.tif，\
+                    默认取交接包根目录下的 H_annual_mean_TIFF 目录（可用 file-root.risk-assessment-h 覆盖）；\
+                    H 栅格与行政区划、AHP 方案都无关，只有年份参与定位，故不提供 regionCode 与 schemeId 参数；\
+                    各年可用日数：2018=359、2019=359、2020=34、2021=361、2022=363、2023=365、2024=366，\
+                    2020 年只是这 34 天的均值，不是完整年度观测；\
+                    没有该年份的文件时返回 404，不用其他年份的文件冒充""")
+    @GetMapping("/hazard/raster")
+    public ResponseEntity<Resource> getHazardRaster(
+            @Parameter(description = RISK_YEAR_DESC, example = "2018")
+            @RequestParam("year") Short year) {
+        Path file = riskAssessmentService.hazardRaster(year);
+        if (file == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                    "该年份没有「危险性 H」的年度均值栅格文件");
+        }
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType("image/tiff"))
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.inline().filename(file.getFileName().toString()).build().toString())
+                .body(new FileSystemResource(file));
+    }
+
+    @Operation(summary = "综合风险评估与区划·H/E/V 分项指数",
+            description = """
+                    返回所选行政区在评价年份内的危险性 H、暴露度 E、脆弱性 V 三项指数\
+                    （均为 0—1 归一化指数，不按 AHP 加权合成，也不由评分反推）；\
+                    取数：H 取 dangerousness_annual_summary.mean（与方案无关）、\
+                    E 取 exposure_composite_summary.region_value、V 取 vulnerability_composite_summary.mean，\
+                    后两项按 schemeId（0—6）取方案；\
+                    数据覆盖：H 与 E 为 2018—2024，V 只有 2018—2022，缺项返回 null 并附 source，不补 0；\
+                    三项都取不到时返回 404；regionCode 不是有效区划码时返回 400""")
+    @GetMapping("/components")
+    public ResponseDTO<RiskAssessmentComponentsVO> getRiskComponents(
+            @Parameter(description = RISK_YEAR_DESC, example = "2018")
+            @RequestParam("year") Short year,
+            @Parameter(description = RegionCodeService.CODE_DESC, example = "232700")
+            @RequestParam("regionCode") Integer regionCode,
+            @Parameter(description = RISK_SCHEME_DESC)
+            @RequestParam(value = "schemeId", required = false, defaultValue = "0") Short schemeId) {
+        regionCodeService.requireCode(regionCode);
+        RiskAssessmentComponentsVO components =
+                riskAssessmentService.riskComponents(year, regionCode, schemeId);
+        if (components == null) {
+            return ResponseDTO.failure(HttpStatus.NOT_FOUND.value(),
+                    "该年份与行政区域没有「危险性 / 暴露度 / 脆弱性」的分项指数");
+        }
+        return ResponseDTO.success(components);
     }
 
 }

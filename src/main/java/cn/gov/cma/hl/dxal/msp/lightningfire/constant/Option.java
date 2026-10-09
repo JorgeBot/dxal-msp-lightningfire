@@ -145,6 +145,44 @@ public class Option {
     }
 
     /**
+     * 综合风险评估与区划·评分区间
+     *
+     * <p>危险性评分是 0—100 百分制，界面按等宽 20 分五档展示记录日占比，
+     * 与承载体暴露度、脆弱性按归一化值分档的展示口径不同，故单列一套枚举。</p>
+     *
+     * <p>upperBound 为该档上界：前四档左闭右开，末档含上界 100。等宽 20 分档只是连续评分的
+     * 展示统计，不是由参考分位冻结的风险等级阈值，接口按本枚举返回区间标签与边界。</p>
+     */
+    @Getter
+    public enum RiskGradeOption {
+        low("低风险", 0, 20),
+        lower("较低风险", 20, 40),
+        medium("中风险", 40, 60),
+        higher("较高风险", 60, 80),
+        high("高风险", 80, 100),
+        ;
+
+        private final String label;
+
+        private final int lowerBound;
+
+        private final int upperBound;
+
+        RiskGradeOption(String label, int lowerBound, int upperBound) {
+            this.label = label;
+            this.lowerBound = lowerBound;
+            this.upperBound = upperBound;
+        }
+
+        /**
+         * 区间标签，形如「低风险 0—20」，与接口返回的评分区间标签同一口径。
+         */
+        public String getBinLabel() {
+            return label + " " + lowerBound + "—" + upperBound;
+        }
+    }
+
+    /**
      * 时间轴粒度
      */
     @Getter

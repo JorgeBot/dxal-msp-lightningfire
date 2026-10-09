@@ -40,15 +40,26 @@ import java.util.List;
  * 这段年限即雷暴统计的时间口径、与页面的 since ~ until 无关，故取选区内全部年份的平均；
  * 雷暴密度 = 年平均雷暴天数 ÷ 选区内县市区面积之和（天/万km²）。选区内有区划没有雷暴站或没有面积口径时两格记 0。</p>
  *
- * <p>要素口径：气温、风速、降水、相对湿度、湿润指数的数据源是 weather_observations（区县 × 年，
- * 见 {@link WeatherObservation}）。页面选择的是日期区间，而该表只有年度值，故按自然年归一到 since ~ until
- * 覆盖的年份，在 regionCode 范围内的全部区县年记录上等权聚合——不按区县面积、也不按站点数加权
- * （表里没有这两列，且各县站点数差异已由入库口径处理）。闪电特征与雷击火按记录日期精确过滤，
- * 不受年度口径影响。区间内没有任何记录时各格记 0，与地闪特征、相关系数等接口的缺数约定一致，
+ * <p>要素口径：气温、风速、降水、相对湿度、湿润指数的数据源是 weather_observations，该表已改为
+ * 逐日粒度（采集日期 × 区县，见 {@link WeatherObservation}），故按 since ~ until 的日期区间精确过滤，
+ * 在 regionCode 范围内的全部「区县 × 日」记录上聚合——不按区县面积、也不按站点数加权
+ * （表里没有这两列，且各县站点数差异已由入库口径处理）：</p>
+ * <ul>
+ *   <li>气温、风速、相对湿度：平均 / 最高 / 最低即区间内日值的 AVG / MAX / MIN，第四格为极差；</li>
+ *   <li>降水：平均 / 最大 / 最小为区间内日降水的 AVG / MAX / MIN（三个格子同一量纲），
+ *       第四格为日降水极差；</li>
+ *   <li>湿润指数：表内是「年初至当日」的累计值，逐日平均会因年初低值而系统性偏低、取 MAX 会取到
+ *       3—5 月累计积温分母极小时的年内尖峰，故平均 / 最大 / 最小都按区间内最后一个非空值取
+ *       （即该区间最新的年内累计湿润指数），第四格为该值减多年平均的距平。</li>
+ * </ul>
+ *
+ * <p>闪电特征与雷击火按记录日期精确过滤，与气象要素同一套日期区间口径。
+ * 区间内没有任何记录时各格记 0，与地闪特征、相关系数等接口的缺数约定一致，
  * 不在同一页面出现两种空值口径。</p>
  *
- * <p>湿润指数距平的基准取同一区划范围全部年份（2018—2025）的平均湿润指数，即
- * 距平 = 区间平均 − 多年平均，正值表示比多年平均更湿润；这是本表能给出的最长基准，
+ * <p>湿润指数距平的基准取同一区划范围的多年平均湿润指数：先把每个「区县 × 年」的年内最后一个
+ * 非空值作为该区县该年的年度湿润指数，再对 2018—2025 各年的值求平均（实测大兴安岭 7 县区约 2.27）；
+ * 距平 = 区间值 − 多年平均，正值表示比多年平均更湿润。这是本表能给出的最长基准，
  * 不使用 1991—2020 常年值（数据不在本库内）。</p>
  *
  * <p>regionCode 为 6 位行政区划码，选区内的县区由 {@link RegionCode#selectable(Integer)} 给出：
@@ -87,8 +98,8 @@ public class KeyElementOverviewService {
     /**
      * 所选要素的统计概览格子，顺序固定：平均、最大、最小、第四格（闪电特征、雷击火、雷暴为各自的口径）。
      *
-     * @param since      统计起始日期（含），只取到自然年；雷暴按 1961—2013 年口径，不使用该参数
-     * @param until      统计结束日期（含），只取到自然年；雷暴按 1961—2013 年口径，不使用该参数
+     * @param since      统计起始日期（含），按日至精确过滤
+     * @param until      统计结束日期（含），按日至精确过滤；雷暴按 1961—2013 年口径，不使用该参数
      * @param regionCode 分析区域，非 null 且必须是 {@link RegionCode} 内的区划码
      * @param element    所选要素，取值见 Option.KeyElementOption
      * @return 该要素的 4 个格子；区间或范围内没有记录时记 0；雷暴的第 3、4 格恒为 null
@@ -208,21 +219,31 @@ public class KeyElementOverviewService {
     }
 
     /**
-     * 所选气象要素的 4 格：区间内等权聚合的平均、最大、最小与第四格。
+     * 所选气象要素的 4 格：区间内聚合的平均、最大、最小与第四格。
      *
      * <p>一次查询取回全部要素的聚合（见 WeatherObservationMapper.selectKeyElementStatistics），
-     * 这里只取所选要素那一行；多年平均湿润指数只在要算距平时才查，不为其他要素多做一次聚合。
+     * 这里只取所选要素那一行；湿润指数还要另查一次区间内最新的年内累计值
+     * （selectLatestMoistureIndex，因为该列是累计值、不能取区间平均），
+     * 多年平均湿润指数只在要算距平时才查，不为其他要素多做一次聚合。
      * 结果缺行或聚合值为 NULL 时按无有效值处理（展示为 0）。</p>
+     *
+     * <p>第一格的聚合方式随要素不同（湿润指数改取区间内最新值），由 Mapper 的 SQL 决定，
+     * 这里只做这一次替换。</p>
      */
     private List<ArticleVO> elementCells(LocalDate since, LocalDate until, RegionCode regionCode, ElementCard card) {
+        LambdaQueryWrapper<WeatherObservation> range = rangeQuery(since, until, regionCode);
         KeyElementStatisticDTO statistic = weatherObservationMapper
-                .selectKeyElementStatistics(rangeQuery(since, until, regionCode)).stream()
+                .selectKeyElementStatistics(range).stream()
                 .filter(row -> row.element().equals(card.name()))
                 .findFirst()
                 .orElse(null);
         Double avg = statistic == null ? null : statistic.avgValue();
         Double max = statistic == null ? null : statistic.maxValue();
         Double min = statistic == null ? null : statistic.minValue();
+        if (card == ElementCard.wetnessIndex) {
+            // 湿润指数是年内累计值，第一格不用区间平均，改取区间内最新一天的值
+            avg = weatherObservationMapper.selectLatestMoistureIndex(range);
+        }
         Double moistureIndexBaseline = card == ElementCard.wetnessIndex
                 ? weatherObservationMapper.selectAverageMoistureIndex(regionQuery(regionCode))
                 : null;
@@ -235,10 +256,11 @@ public class KeyElementOverviewService {
     }
 
     /**
-     * 第四格：气温等要素为最大 − 最小（极差），湿润指数为距平（区间平均 − 多年平均）。
+     * 第四格：气温等要素为最大 − 最小（区间内日值极差），湿润指数为距平（区间值 − 多年平均）。
      *
      * <p>参与相减的任一项为空（区间内该要素没有有效值，或范围内没有多年平均）时返回 null，
-     * 由展示层按「无数据记 0」处理。</p>
+     * 由展示层按「无数据记 0」处理。降水同样是「最大日降水 − 最小日降水」，与第一格的区间累计不同量纲，
+     * 页面标签「降水极差」沿用原口径。</p>
      */
     private Double lastValue(ElementCard card, Double avg, Double max, Double min, Double moistureIndexBaseline) {
         if (card == ElementCard.wetnessIndex) {
@@ -260,17 +282,19 @@ public class KeyElementOverviewService {
     }
 
     /**
-     * 要素统计条件：区划范围内、assessment_year 落在 since ~ until 覆盖的自然年。
+     * 要素统计条件：区划范围内、assessment_date 落在 since ~ until 之间（含端点）。
      *
-     * <p>数据源是年度值，日期区间按自然年取整：2024-06-01 ~ 2024-08-31 与 2024-01-01 ~ 2024-12-31 等价。</p>
+     * <p>数据源已改为逐日粒度，日期区间按日精确过滤，不再按自然年取整：
+     * 2024-06-01 ~ 2024-08-31 只统计这三个月的日记录，与 2024-01-01 ~ 2024-12-31 不等价。
+     * since / until 为空时该端不设条件。</p>
      */
     private LambdaQueryWrapper<WeatherObservation> rangeQuery(LocalDate since, LocalDate until, RegionCode regionCode) {
         LambdaQueryWrapper<WeatherObservation> q = regionQuery(regionCode);
         if (since != null) {
-            q.ge(WeatherObservation::getAssessmentYear, (short) since.getYear());
+            q.ge(WeatherObservation::getAssessmentDate, since);
         }
         if (until != null) {
-            q.le(WeatherObservation::getAssessmentYear, (short) until.getYear());
+            q.le(WeatherObservation::getAssessmentDate, until);
         }
         return q;
     }
@@ -293,8 +317,11 @@ public class KeyElementOverviewService {
      * 概览网格中的气象要素卡片：标签、单位与展示精度都收在这里，一个要素固定 4 格。
      *
      * <p>枚举名与 Mapper 返回的 element 标识一致（即 Option.KeyElementOption 的枚举名），
-     * 于是「所选要素 → 卡片」不需要额外的映射表。第四格：气温、风速、降水、相对湿度为极差，
-     * 湿润指数为距平。</p>
+     * 于是「所选要素 → 卡片」不需要额外的映射表。标签沿用页面既有文案：气温、风速、降水、
+     * 相对湿度的前两格是区间内日值的平均与最高，降水第一格为日平均降水（不是区间累计）；
+     * 湿润指数的三格取区间内最后一个非空值（其年内累计口径见
+     * {@link cn.gov.cma.hl.dxal.msp.lightningfire.entity.WeatherObservation}）；
+     * 第四格：气温、风速、降水、相对湿度为极差，湿润指数为距平。</p>
      */
     @Getter
     private enum ElementCard {
