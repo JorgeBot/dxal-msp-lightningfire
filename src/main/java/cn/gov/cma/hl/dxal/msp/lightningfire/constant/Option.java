@@ -198,4 +198,43 @@ public class Option {
             this.label = label;
         }
     }
+
+    /**
+     * 环境影响阈值·环境因子（功能二：固定阈值）
+     *
+     * <p>枚举名即接口 factor 参数取值，与成果文件的因子 id 逐字一致（snake_case，
+     * 如 lightning_count、mean_abs_intensity），因此这里没有采用驼峰常量名——
+     * 与 {@link RiskGradeOption} 的小写常量同一理由：取值要能直接给前端下拉框与 SQL 列名复用。
+     * 顺序与 功能二_固定阈值/结果/因子字典.csv、阈值汇总.csv 一致；
+     * {@code combined} 没有单列阈值，是 {@link FixedThreshold#COMBINED_PATHS} 的路径集合，排在最后。</p>
+     */
+    @Getter
+    public enum EnvironmentalFactorOption {
+        lightning_count("雷电记录数"),
+        mean_abs_intensity("雷电平均绝对强度"),
+        temperature("气温"),
+        wind_speed("风速"),
+        relative_humidity("相对湿度"),
+        rain("日降水"),
+        fmc("可燃物含水率FMC"),
+        dem("高程"),
+        slope("坡度"),
+        combined(FixedThreshold.COMBINED_NAME),
+        ;
+
+        private final String label;
+
+        EnvironmentalFactorOption(String label) {
+            this.label = label;
+        }
+
+        /**
+         * 该因子在 condition_distribution_daily 中的比例列名：因子 id（枚举名）+ {@code _hit_pct}。
+         *
+         * <p>十个因子的列名都遵循这条规则（如 rain → rain_hit_pct），列名不另写字面量。</p>
+         */
+        public String getPctColumn() {
+            return name() + "_hit_pct";
+        }
+    }
 }
