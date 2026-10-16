@@ -110,7 +110,7 @@ public class KeyElementOverviewService {
             case lightningCharacteristics -> lightningCells(since, until, regionCode).toArray(ArticleVO[]::new);
             case lightingFire -> lightningFireCells(since, until, regionCode).toArray(ArticleVO[]::new);
             // 雷暴表只有 1961—2013 年，与页面日期区间无关，故不传 since / until
-            case thunderstorm -> thunderstormCells(regionCode).toArray(ArticleVO[]::new);
+            case thunderstorm -> thunderstormCells(since, until, regionCode).toArray(ArticleVO[]::new);
             // 气象要素：要素枚举名与 ElementCard 枚举名一致，可直接按名取卡片
             case temperature, windSpeed, precipitation, relativeHumidity, wetnessIndex ->
                     elementCells(since, until, regionCode, ElementCard.valueOf(element.name()))
@@ -182,12 +182,28 @@ public class KeyElementOverviewService {
      * 单位 天/万km²，分母与点位密度同用 {@link RegionArea}。选区内只要有县市区没有雷暴站或没有面积口径，
      * 两格就记 0，不拿部分站点、部分面积算全选区的值。该要素只有两项统计，后两格按页面 4 格布局返回 null。</p>
      */
-    private List<ArticleVO> thunderstormCells(RegionCode regionCode) {
+    private List<ArticleVO> thunderstormCells(LocalDate since, LocalDate until, RegionCode regionCode) {
+        if (since.getYear() > 2013) {
+            return List.of(
+                    new ArticleVO("年平均雷暴天数", "-", UNIT_THUNDERSTORM_DAYS),
+                    new ArticleVO("雷暴密度", "-", UNIT_THUNDERSTORM_DENSITY),
+                    new ArticleVO(null, null, null),
+                    new ArticleVO(null, null, null));
+        }
+
         List<String> stationCodes = selectedStationCodes(regionCode);
+
+        LambdaQueryWrapper<ThunderstormStatistics> q = Wrappers.lambdaQuery();
+        if (since != null) {
+            q.ge(ThunderstormStatistics::getObservationYear, since.getYear());
+        }
+        if (until != null) {
+            q.le(ThunderstormStatistics::getObservationYear, until.getYear());
+        }
         Double avgDays = stationCodes == null
                 ? null
                 : thunderstormStatisticsMapper.selectAverageThunderstormDays(
-                        Wrappers.<ThunderstormStatistics>lambdaQuery()
+                        q
                                 .in(ThunderstormStatistics::getStationCode, stationCodes));
         Integer areaKm2 = selectedAreaKm2(regionCode);
         Double density = avgDays == null || areaKm2 == null || areaKm2 == 0

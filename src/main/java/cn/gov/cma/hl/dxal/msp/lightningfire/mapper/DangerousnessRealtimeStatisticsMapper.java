@@ -9,7 +9,8 @@ import org.apache.ibatis.annotations.Mapper;
  *
  * <p>对应表 dangerousness_realtime_statistics。主键 (date, county_code) 是复合主键，
  * {@code selectById}、{@code updateById}、{@code deleteById} 等单主键方法不可用；
- * 本模块只用 {@code selectList} 按「日期 + 地市名 / 区县名」取一天的记录（一天最多 125 行）。</p>
+ * 本模块只用 {@code selectList} 按「日期区间 + 地市名 / 区县名」取数（一天最多 125 行，
+ * 单日查询传同一个日期即可）。</p>
  *
  * <p>按行政区过滤时用 {@code city} + {@code region} 两个名称列，不按 {@code county_code}：
  * 该列在大兴安岭地区有三个区是非国标码（见实体注释），按名称定位才不会漏区。</p>

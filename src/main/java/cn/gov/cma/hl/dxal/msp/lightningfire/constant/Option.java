@@ -237,4 +237,44 @@ public class Option {
             return name() + "_hit_pct";
         }
     }
+
+    /**
+     * 危险性实时分析·要素（概览统计、各区县要素值与排行共用的 element 参数）
+     *
+     * <p>把危险性评分本身也算作一个要素（排在首位，也是默认值）：概览统计的四项统计、各区县数值与
+     * 排行都按同一个 element 取值，因此「看危险性评分」与「看某个气象要素」走同一套接口，
+     * 不必为评分单列一组接口。四个气象要素与表 dangerousness_realtime_statistics 的四列一一对应
+     * （{@code temperature} / {@code relative_humidity} / {@code wind_speed} / {@code rain}），
+     * 顺序与表内列序、/ltg-env 统计概览的同名要素一致。</p>
+     *
+     * <p>unit 为该要素的展示单位（危险性评分 0—100 百分制记「分」，其余沿用页面既有口径：
+     * 气温 ℃、相对湿度 %、风速 m/s、降水 mm）；scale 为该要素在表内的小数位数
+     * （危险性评分 numeric(10,4) 取 4，四个要素 numeric(12,6) 取 6），接口用它抹掉 double 累加的尾差
+     * （如 30 天气温平均 7.072761000000004 → 7.072761），不改变数值口径。表内没有单位列，
+     * 接口只做原样返回、不做单位换算。</p>
+     */
+    @Getter
+    public enum RealtimeElementOption {
+        score("危险性评分", "分", 4),
+        temperature("气温", "℃", 6),
+        relativeHumidity("相对湿度", "%", 6),
+        windSpeed("风速", "m/s", 6),
+        rain("降水", "mm", 6),
+        ;
+
+        private final String label;
+
+        private final String unit;
+
+        /**
+         * 该要素在表内的小数位数（源列 numeric 的 scale）
+         */
+        private final int scale;
+
+        RealtimeElementOption(String label, String unit, int scale) {
+            this.label = label;
+            this.unit = unit;
+            this.scale = scale;
+        }
+    }
 }

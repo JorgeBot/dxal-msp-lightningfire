@@ -27,4 +27,4 @@ file-root:
 server:
   port: 18880
   servlet:
-    context-path: /lightingfire
+    context-path: /api
